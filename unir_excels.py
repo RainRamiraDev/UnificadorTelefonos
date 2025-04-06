@@ -1,6 +1,8 @@
 import os
 import sys
 import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 ARCHIVO_MAESTRO = 'maestro.xlsx'
 CARPETA_LISTAS = 'Excels'
@@ -18,8 +20,8 @@ def encontrar_columna_telefono(df):
 # Modo RESET si se pasa argumento
 # --------------------
 if len(sys.argv) > 1 and sys.argv[1].lower() == 'reset':
-    df_vacio = pd.DataFrame(columns=['Telefono'])
-    df_vacio.to_excel(ARCHIVO_MAESTRO, index=False)
+    df_vacio = pd.DataFrame([['Telefono']])
+    df_vacio.to_excel(ARCHIVO_MAESTRO, index=False, header=False)
     print("🔁 Maestro reseteado. Archivos anteriores ignorados.")
     sys.exit()
 
@@ -33,18 +35,15 @@ try:
     if fila_titulo_maestro is None:
         print(f"⚠️ No se encontró columna 'Telefono' en {ARCHIVO_MAESTRO}")
         telefonos_existentes = []
-        df_maestro = pd.DataFrame(columns=['Telefono'])
     else:
         idx_telefono_maestro = df_maestro_raw.columns.get_loc(col_telefono_maestro)
         telefonos_existentes = df_maestro_raw.iloc[fila_titulo_maestro+1:, idx_telefono_maestro].dropna()
         telefonos_existentes = telefonos_existentes.astype(str).str.strip().tolist()
-        df_maestro = pd.DataFrame({'Telefono': telefonos_existentes})
 
-    print(f"📖 Maestro cargado con {len(df_maestro)} registros.")
+    print(f"📖 Maestro cargado con {len(telefonos_existentes)} registros.")
 except FileNotFoundError:
     print(f"⚠️ Archivo {ARCHIVO_MAESTRO} no encontrado. Se creará uno nuevo.")
     telefonos_existentes = []
-    df_maestro = pd.DataFrame(columns=['Telefono'])
 
 # --------------------
 # Leer archivos desde carpeta "Excels"
@@ -78,14 +77,40 @@ else:
             print(f"❌ Error leyendo {archivo}: {e}")
 
 # --------------------
-# Comparar y guardar
+# Comparar y guardar en ubicación exacta
 # --------------------
 telefonos_para_agregar = [t for t in datos_nuevos if t not in telefonos_existentes]
 
 if telefonos_para_agregar:
-    df_nuevos = pd.DataFrame({'Telefono': telefonos_para_agregar})
-    df_maestro = pd.concat([df_maestro, df_nuevos], ignore_index=True)
-    df_maestro.to_excel(ARCHIVO_MAESTRO, index=False)
-    print(f"✅ {len(telefonos_para_agregar)} teléfonos agregados al maestro.")
+    # Abrir workbook y hoja activa
+    wb = load_workbook(ARCHIVO_MAESTRO)
+    ws = wb.active
+
+    # Buscar coordenadas de 'Telefono'
+    fila_titulo, col_letra = None, None
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+        for cell in row:
+            if str(cell.value).strip().lower() == 'telefono':
+                fila_titulo = cell.row
+                col_letra = get_column_letter(cell.column)
+                break
+        if fila_titulo:
+            break
+
+    if not fila_titulo or not col_letra:
+        print("⚠️ No se encontró la celda con título 'Telefono'.")
+    else:
+        # Buscar primera fila vacía debajo del título
+        fila_actual = fila_titulo + 1
+        while ws[f"{col_letra}{fila_actual}"].value is not None:
+            fila_actual += 1
+
+        # Insertar nuevos teléfonos
+        for tel in telefonos_para_agregar:
+            ws[f"{col_letra}{fila_actual}"] = tel
+            fila_actual += 1
+
+        wb.save(ARCHIVO_MAESTRO)
+        print(f"✅ {len(telefonos_para_agregar)} teléfonos agregados al maestro en columna {col_letra} debajo del título.")
 else:
     print("ℹ️ No se encontraron datos nuevos para agregar.")
